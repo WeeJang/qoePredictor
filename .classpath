@@ -7,6 +7,6 @@
 	<classpathentry kind="src" path="src/test/java"/>
 	<classpathentry kind="src" path="src/test/resources"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-	<classpathentry kind="lib" path="/home/jangwee/workspace/wp_scala/qoeAnalyzer/lib/spark-assembly-1.3.1-hadoop1.0.4.jar"/>
+	<classpathentry kind="lib" path="/home/jangwee/workspace/wp_scala/qoeAnalyzer/lib/spark-assembly-1.3.1-hadoop1.0.4.jar" sourcepath="/usr/local/spark-1.3.1/mllib/src/main"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

@@ -1,5 +1,6 @@
 package qoePredictor
 
+import java.io.File
 import org.apache.spark.SparkContext
 
 object Utils {
@@ -10,9 +11,27 @@ object Utils {
     f
     println("=====================")
   }
-  
-  //将数据文件转换成LibSVMData格式
-  def transFile2LibSVMDataFile(sc: SparkContext, sourceFileUri: String, destFileUri: String): Unit = {
+
+  //删除该文件夹及文件夹下所有文件
+  def removeAll(file: File): Unit = {
+    file.isDirectory match {
+      case true => { file.listFiles.map(removeAll _); file.delete }
+      case false => file.delete()
+    }
+  }
+
+  //  将数据文件转换成LibSVMData格式
+  //
+  //  窗口
+  //  | ---Train --- | --- Interval --- | --- Predict --- | 
+  //    训练窗口长度（second）
+  //       trainWindowLength
+  //    间隔窗口长度（second）
+  //       intervalWindowLength 
+  //    预测窗口长度（second）
+  //       predictWindowLength  
+  def transFile2LibSVMDataFile(sc: SparkContext, sourceFileUri: String, destFileUri: String,
+                   trainWindowLength: Int, intervalWindowLength: Int, predictWindowLength: Int): Unit = {
 
     val textFile = sc.textFile(sourceFileUri)
 
@@ -31,12 +50,8 @@ object Utils {
 
     //标识一条记录
     var isRecordFinish = false
-    //样本窗口长度（second）
-    val trainWindowLength = 8
-    //预测窗口长度（second）
-    val predictWindowLength = 4
-    //遍历长度
-    val travelLength = trainWindowLength + predictWindowLength
+
+    val travelLength = trainWindowLength + intervalWindowLength + predictWindowLength
 
     //样本记录,环形Array
     import scala.collection.mutable.ArrayBuffer
@@ -46,8 +61,7 @@ object Utils {
     val sampleBitLayer = new Array[Double](travelLength)
     val sampleIndex = new Array[Double](travelLength)
     val sampleBufferTime = new Array[Double](travelLength)
-    //cache
-    val sampleCache = Array(sampleRSSIBuffer, sampleLinkSpeedBuffer, sampleRTTBuffer, sampleBitLayer, sampleIndex, sampleBufferTime)
+
     //Pointer
     var headPosition = 0;
     var isFull = false
@@ -96,8 +110,8 @@ object Utils {
               accum(0).append(elem._1) //RSSI
               accum(1).append(elem._2) //LinkSpeed
               accum(2).append(elem._3) //RTT
-              accum(3).append(elem._4) //BitLayer
-              accum(4).append(elem._5) //Index
+              //             accum(3).append(elem._4) //BitLayer
+              //             accum(4).append(elem._5) //Index
               accum(5).append(elem._6) //BufferTime
               accum
             }
@@ -105,13 +119,13 @@ object Utils {
 
         //Get Result Data
         val resultData = for {
-          i <- trainWindowLength to travelLength - 1
+          i <- (trainWindowLength + intervalWindowLength) to travelLength - 1
         } yield {
           val elemIndex = (i + headPosition) % travelLength
           sampleBufferTime(elemIndex)
         }
         //卡顿标记(1:yes,-1:no)
-        val freeze = if (resultData.exists(_ < 0.5)) 1 else -1
+        val freeze = if (resultData.exists(_ < 0.5)) 1 else 0
         //平均缓冲水平
         val meanBufferTime = resultData.sum / resultData.size
 
@@ -134,11 +148,12 @@ object Utils {
     retRDD.collect().map { arrBuffer =>
       arrBuffer.foreach { buffered =>
         var index = 0
-        val outputLine = buffered.takeRight(buffered.size - 1).foldLeft(new StringBuffer(s"${buffered(0)} ")) { (accum, elem) =>
+        //截取［RSSI,LinkSpeed,RTT］*trainWindowLength + recent_bufferlength
+        val outputLine = buffered.takeRight(buffered.size - 1).take(4 * trainWindowLength).foldLeft(new StringBuffer(s"${buffered(0)} ")) { (accum, elem) =>
           index += 1
           accum.append(s"${index}:${elem} ")
-        }
-        outputLine.append("\n")
+        }.append(s"\n")
+
         bufferedWriter.write(outputLine.toString)
       }
     }
